@@ -40,6 +40,19 @@ tests/                           (optional: the browser + unit checks, not used 
 `Cannot find module '.../scripts/prebuild-check.mjs'`; this kit's version only warns and
 continues, but copying the folder keeps the useful "what did I actually upload?" diagnosis.
 
+## If the build says "Couldn't find any 'pages' or 'app' directory"
+
+Next.js ran in a folder that has a `package.json` but no `app/` at that level — the
+source and the Vercel Root Directory setting disagree. In your repo run:
+
+```bash
+bash diagnose-repo.sh        # read-only; prints where app/ really is and what to set
+```
+
+It prints the folder that holds `app/`, whether git is tracking those files, and the
+Root Directory value to use. (The same diagnosis now prints in the Vercel build log
+whenever `package.json` and `scripts/` are both present.)
+
 ## Before you push
 
 ```bash
