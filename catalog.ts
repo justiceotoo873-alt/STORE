@@ -143,3 +143,57 @@ export function safeImage(value: string): string {
   try { const url = new URL(value); return url.protocol === 'https:' ? url.href : ''; }
   catch { return ''; }
 }
+
+/**
+ * Only a genuine WhatsApp invite/channel link may be shown on the thank-you
+ * page; anything else (typos, http, other hosts, injected URLs) is ignored so
+ * the page never sends a paying customer to an unverified address.
+ */
+export function whatsappGroupUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return null;
+    const host = url.hostname.toLowerCase();
+    // Group invitations and channels only. A wa.me/<number> link is a direct
+    // chat (the support line), so it is deliberately NOT accepted here — the
+    // community button must never open the customer-support conversation.
+    if (!['chat.whatsapp.com', 'whatsapp.com', 'www.whatsapp.com'].includes(host)) return null;
+    if (url.username || url.password) return null;
+    if (host === 'chat.whatsapp.com' && url.pathname.replace(/\/+$/, '').length < 2) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/** The support chat used by the floating button and the footer CTA. */
+export const SUPPORT_WHATSAPP_FALLBACK = '233592060208';
+
+/**
+ * Build a wa.me link for the support chat. Accepts +233 59 206 0208, 233…
+ * or 0592… and normalises to international digits. Anything without enough
+ * digits returns null so the UI never renders a broken chat link.
+ */
+export function supportWhatsappUrl(raw: unknown, message = 'Hi The Tie Guy, I need some help.'): string | null {
+  if (typeof raw !== 'string') return null;
+  const digits = raw.replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  let international = digits;
+  if (digits.startsWith('0')) international = `233${digits.replace(/^0+/, '')}`;      // local Ghanaian format
+  if (!international.startsWith('233')) international = `233${international}`;        // bare national number
+  if (international.length < 11 || international.length > 15) return null;
+  const text = message.trim() ? `?text=${encodeURIComponent(message.trim())}` : '';
+  return `https://wa.me/${international}${text}`;
+}
+
+/** The community/giveaway group — distinct from the support chat. */
+export function whatsappGroupFromEnv(env: Record<string, string | undefined> = process.env): string | null {
+  for (const name of ['NEXT_PUBLIC_WHATSAPP_GROUP_URL', 'NEXT_PUBLIC_WHATSAPP_GROUP_LINK', 'NEXT_PUBLIC_WHATSAPP_COMMUNITY_URL', 'WHATSAPP_GROUP_URL']) {
+    const url = whatsappGroupUrl(env[name]);
+    if (url) return url;
+  }
+  return null;
+}

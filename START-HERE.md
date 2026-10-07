@@ -18,7 +18,8 @@ Full instructions: [`DEPLOY-STORE.md`](DEPLOY-STORE.md).
 4. **Add these environment variables** (Production *and* Preview), then redeploy:
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
    `SUPABASE_SERVICE_ROLE_KEY` (server secret), `PAYSTACK_SECRET_KEY` (start with `sk_test_…`),
-   `STORE_ORIGIN` (exact `https://…` origin, no trailing slash), `CRON_SECRET` (32+ random characters).
+   `STORE_ORIGIN` (exact `https://…` origin, no trailing slash), `CRON_SECRET` (32+ random characters),
+   and optionally `NEXT_PUBLIC_WHATSAPP_GROUP_URL` (the group invite shown on the thank-you page).
    Real keys are deliberately **not** in this archive. The site still deploys without them and shows checkout disabled.
 5. **Paystack**: set the webhook URL to `https://<your-domain>/api/paystack-webhook`, take one test-key order end to end, then switch to live keys and redeploy. Now open `/api/config` — it must report `checkout_enabled: true`.
 

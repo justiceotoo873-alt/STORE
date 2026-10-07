@@ -1,5 +1,5 @@
 import { normalizeQuote } from '@/lib/catalog';
-import { checkStoreOrigin, json, serviceClient } from '@/lib/server';
+import { checkStoreOrigin, json, serviceClient, storeOriginHint } from '@/lib/server';
 export const dynamic = 'force-dynamic';
 
 type Input = {
@@ -14,7 +14,7 @@ const safeErrors = ['Not enough stock', 'An item or size is no longer available'
 export async function POST(request: Request) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.PAYSTACK_SECRET_KEY || !process.env.STORE_ORIGIN)
     return json({ error: 'Secure checkout is not available yet.' }, 503);
-  if (!checkStoreOrigin(request)) return json({ error: 'Please use the official store to request a quote.' }, 403);
+  if (!checkStoreOrigin(request)) return json({ error: 'Please use the official store to request a quote.', ...storeOriginHint(request) }, 403);
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ error: 'Expected JSON.' }, 415);
   if (Number(request.headers.get('content-length') || 0) > 6000) return json({ error: 'Quote request is too large.' }, 413);
   try {

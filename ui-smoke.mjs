@@ -59,6 +59,14 @@ try {
   await page.route('https://checkout.paystack.com/**',r=>r.fulfill({status:200,body:'LOCAL TEST GATEWAY. NO REAL PAYMENT.'}));
   await page.goto(url,{waitUntil:'networkidle'});
   await page.getByRole('heading',{name:'Find your signature.'}).waitFor();
+  // New chrome: floating support button + footer WhatsApp CTA (support number, not the group).
+  const support=page.locator('.support-float');
+  assert.equal(await support.count(),1,`${label}: floating WhatsApp support button`);
+  assert.match(await support.getAttribute('href')||'',/^https:\/\/wa\.me\/233592060208/,`${label}: support button uses the business number`);
+  assert.equal(await page.locator('.site-footer').getByRole('link',{name:/Chat with us on WhatsApp/}).count(),1,`${label}: footer WhatsApp CTA`);
+  assert.equal(await page.getByText('DM @thetieguy').count(),0,`${label}: Instagram DM line removed`);
+  // The drawer must never trap scrolling when it is closed.
+  assert.notEqual(await page.evaluate(()=>getComputedStyle(document.body).overflow),'hidden',`${label}: page scrolls freely on arrival`);
   const horizontal=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}));
   assert.ok(horizontal.scroll<=horizontal.width,`${label}: horizontal scroll ${JSON.stringify(horizontal)}`);
   await page.getByRole('button',{name:'View Paisley signature necktie'}).click();

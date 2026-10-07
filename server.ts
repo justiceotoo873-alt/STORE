@@ -42,14 +42,39 @@ export async function readSizeChart(id: string) {
 }
 
 export function checkStoreOrigin(req: Request): boolean {
-  const expected = process.env.STORE_ORIGIN?.replace(/\/$/, '');
-  if (!expected) return false;
+  const configured = process.env.STORE_ORIGIN?.trim().replace(/\/$/, '');
+  if (!configured) return false;
   try {
-    const parsed = new URL(expected);
+    const parsed = new URL(configured);
     if (parsed.protocol !== 'https:' && !(process.env.NODE_ENV !== 'production' && parsed.hostname === 'localhost')) return false;
     const origin = req.headers.get('origin');
-    return !!origin && origin === parsed.origin;
+    const allowed = !!origin && origin === parsed.origin;
+    if (!allowed) {
+      // Names/addresses only — never keys. This is what you look for in Vercel logs.
+      console.error('origin_mismatch', JSON.stringify({
+        page_opened_at: origin || '(no Origin header — opened from a file or a sandboxed frame)',
+        store_origin_setting: parsed.origin,
+        path: new URL(req.url).pathname,
+      }));
+    }
+    return allowed;
   } catch { return false; }
+}
+
+/**
+ * Owner-facing explanation attached to 403 origin rejections so the store page
+ * (and the Vercel log) says what to change instead of only refusing politely.
+ * Contains no secrets: both values are public web addresses.
+ */
+export function storeOriginHint(req: Request) {
+  const configured = process.env.STORE_ORIGIN?.trim().replace(/\/$/, '');
+  const received = req.headers.get('origin') || '';
+  if (!configured) return { code: 'origin_mismatch', hint: 'STORE_ORIGIN is not set for this deployment.' };
+  let expected = configured;
+  try { expected = new URL(configured).origin; } catch { /* keep raw value for the message */ }
+  if (!received) return { code: 'origin_mismatch', hint: `This page sent no Origin header. Open the store in its own browser tab at ${expected}.` };
+  if (received !== expected) return { code: 'origin_mismatch', hint: `This page is at ${received} but STORE_ORIGIN is ${expected}. Set STORE_ORIGIN in Vercel to the address customers use, then redeploy — or open the store at ${expected}.` };
+  return { code: 'origin_mismatch', hint: `The store's STORE_ORIGIN matches this page but the request was refused. Check the Vercel logs for origin_mismatch.` };
 }
 
 export const json = (body: unknown, status = 200) => Response.json(body, {

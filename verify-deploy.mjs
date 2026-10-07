@@ -31,6 +31,8 @@ const VARS = [
   { name: 'PAYSTACK_SECRET_KEY', scope: 'server secret', needed: 'Initialize + independently verify payments', example: 'sk_test_... (start here)', checkout: true },
   { name: 'STORE_ORIGIN', scope: 'server', needed: 'Exact HTTPS origin used for the Paystack callback', example: 'https://your-store-domain', checkout: true },
   { name: 'CRON_SECRET', scope: 'server secret', needed: 'Protects the daily missed-webhook reconciliation route', example: '32+ random characters', checkout: false },
+  { name: 'NEXT_PUBLIC_WHATSAPP_GROUP_URL', scope: 'public', needed: 'Invite shown on the post-payment thank-you page (optional; without it the page says the invite is being set up)', example: 'https://chat.whatsapp.com/XXXXXXXX', optional: true },
+  { name: 'NEXT_PUBLIC_SUPPORT_WHATSAPP', scope: 'public', needed: 'Support chat for the floating button, footer and failed-payment page (optional; defaults to 233592060208)', example: '233592060208', optional: true },
 ];
 
 function readEnvFile(path) {
@@ -74,8 +76,10 @@ for (const file of ['package.json', 'vercel.json', 'tsconfig.json']) {
 console.log('\nEnvironment variables (names only — values are never printed)');
 for (const variable of VARS) {
   const present = Boolean(valueOf(variable.name));
-  console.log(`  ${present ? 'SET    ' : 'MISSING'}  ${variable.name.padEnd(38)} ${variable.scope}`);
-  if (!present) notes.push(`${variable.name} is not set here — add it in Vercel (Project → Settings → Environment Variables) for Production and Preview, then redeploy. Needed for: ${variable.needed}. Example: ${variable.example}`);
+  const label = present ? 'SET    ' : variable.optional ? 'optional' : 'MISSING';
+  console.log(`  ${label}  ${variable.name.padEnd(38)} ${variable.scope}`);
+  if (!present && variable.optional) notes.push(`${variable.name} is not set — optional. Add it in Vercel to show a WhatsApp group invitation on the thank-you page. Example: ${variable.example}`);
+  else if (!present) notes.push(`${variable.name} is not set here — add it in Vercel (Project → Settings → Environment Variables) for Production and Preview, then redeploy. Needed for: ${variable.needed}. Example: ${variable.example}`);
 }
 
 const publishable = valueOf('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
@@ -89,6 +93,12 @@ if (publishable && /^(sb_secret_|eyJ[A-Za-z0-9_-]*\.)/.test(publishable) && publ
 if (publishable && publishable.startsWith('sb_secret_')) problems.push('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY starts with sb_secret_ — a server key must never be published to the browser.');
 if (paystack && paystack.startsWith('sk_live_')) notes.push('PAYSTACK_SECRET_KEY is a LIVE key. Do a full test-key order (sk_test_…) before switching to live.');
 if (paystack && !/^sk_(test|live)_/.test(paystack)) problems.push('PAYSTACK_SECRET_KEY should start with sk_test_ or sk_live_.');
+const support = valueOf('NEXT_PUBLIC_SUPPORT_WHATSAPP');
+if (support && !/^\+?[0-9][0-9\s-]{7,}$/.test(support))
+  problems.push('NEXT_PUBLIC_SUPPORT_WHATSAPP should be a phone number in international form (e.g. 233592060208).');
+const invite = valueOf('NEXT_PUBLIC_WHATSAPP_GROUP_URL');
+if (invite && !/^https:\/\/(chat\.whatsapp\.com\/[^\s]+|wa\.me\/[^\s]+|(www\.)?whatsapp\.com\/[^\s]+)$/i.test(invite))
+  problems.push('NEXT_PUBLIC_WHATSAPP_GROUP_URL should be an https WhatsApp invite link (chat.whatsapp.com/…, wa.me/… or whatsapp.com/…). An invalid value is ignored by the thank-you page.');
 if (storeOrigin && !/^https:\/\/[^\s/]+$/.test(storeOrigin)) problems.push(`STORE_ORIGIN must be a bare HTTPS origin with no trailing slash, e.g. https://your-store-domain (currently ${storeOrigin.replace(/[^/]/g, '*')} shape).`);
 if (cronSecret && cronSecret.length < 32) problems.push('CRON_SECRET should be at least 32 random characters; Vercel sends it to /api/reconcile-pending as Authorization: Bearer …');
 

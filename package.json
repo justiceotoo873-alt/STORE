@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "verify:deploy": "node scripts/verify-deploy.mjs",
     "test": "node --import tsx --test tests/*.test.mjs",
-    "test:routes": "node tests/routes.integration.mjs && node tests/merchandising.routes.integration.mjs"
+    "test:routes": "node tests/routes.integration.mjs && node tests/merchandising.routes.integration.mjs",
+    "test:thankyou": "node tests/thankyou.ui-smoke.mjs",
+    "test:nav": "node tests/navigation.ui-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",

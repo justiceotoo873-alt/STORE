@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { initializePaystack } from '@/lib/paystack';
-import { checkStoreOrigin, json, serviceClient } from '@/lib/server';
+import { checkStoreOrigin, json, serviceClient, storeOriginHint } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +56,7 @@ const safeErrors = ['Online orders are paused', 'Not enough stock', 'An item is 
 export async function POST(request: Request) {
   if (!process.env.PAYSTACK_SECRET_KEY || !process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.STORE_ORIGIN)
     return json({ error: 'Online checkout is not ready. Please come back soon.' }, 503);
-  if (!checkStoreOrigin(request)) return json({ error: 'Please use the official store to place an order.' }, 403);
+  if (!checkStoreOrigin(request)) return json({ error: 'Please use the official store to place an order.', ...storeOriginHint(request) }, 403);
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ error: 'Expected JSON.' }, 415);
   if (Number(request.headers.get('content-length') || 0) > 12_000) return json({ error: 'Checkout request is too large.' }, 413);
   try {

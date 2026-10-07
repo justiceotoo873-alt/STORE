@@ -1,11 +1,11 @@
 import { reconcileStorePayment } from '@/lib/reconcile';
-import { checkStoreOrigin, json, serviceClient } from '@/lib/server';
+import { checkStoreOrigin, json, serviceClient, storeOriginHint } from '@/lib/server';
 
 export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   // This action may settle a payment, so require a same-origin POST. Never put
   // the private checkout token in a GET URL, referrer or server access log.
-  if (!checkStoreOrigin(request)) return json({ error: 'Use the official store to check your order.' }, 403);
+  if (!checkStoreOrigin(request)) return json({ error: 'Use the official store to check your order.', ...storeOriginHint(request) }, 403);
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json'))
     return json({ error: 'Expected JSON.' }, 415);
   if (Number(request.headers.get('content-length') || 0)>1024) return json({ error: 'Invalid request.' }, 413);
@@ -41,13 +41,14 @@ export async function POST(request: Request) {
     // Re-read after settlement (or a concurrent webhook): status, order status,
     // and confirmation source must be from one committed DB row, not stale data.
     const { data: current, error: refreshed } = await client.from('store_orders')
-      .select('order_number,payment_status,order_status,reservation_expires_at,confirmation_source')
+      .select('order_number,payment_status,order_status,reservation_expires_at,confirmation_source,amount_minor,currency')
       .eq('id',order.id).single();
     if (refreshed || !current) throw refreshed || new Error('Order status unavailable');
     const state = String(current.payment_status);
     const paid = ['provider_verified','confirmed','refund_needed','refunded'].includes(state);
     const expired = new Date(current.reservation_expires_at).getTime() < Date.now() && state !== 'confirmed';
     return json({ order_number: current.order_number, reference,
+      amount_minor: current.amount_minor, currency: current.currency,
       payment_status: state, order_status: current.order_status,
       confirmation_source: current.confirmation_source,
       paid_with_paystack: paid, reservation_expired: expired,

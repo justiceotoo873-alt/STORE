@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { ArrowRight, ArrowUpRight, Check, ChevronDown, Instagram, Mail, Menu, Minus, Plus, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Truck, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, Mail, Menu, Minus, Plus, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Truck, X } from 'lucide-react';
+import WhatsAppIcon from './WhatsAppIcon';
+import { supportWhatsappUrl, whatsappGroupFromEnv } from '@/lib/catalog';
 import { blankCatalog, categoryFor, formatGhs, safeImage } from '@/lib/catalog';
 import type { SizeChart, StoreCatalog, StoreProduct, StoreQuote } from '@/lib/catalog';
 
@@ -52,8 +54,12 @@ export default function Storefront() {
   const [quoteKey, setQuoteKey] = useState('');
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [quoteError, setQuoteError] = useState('');
+  const [quoteHint, setQuoteHint] = useState('');
   const [quoteRevision, setQuoteRevision] = useState(0);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [stuck, setStuck] = useState(false);
+  const supportLink = supportWhatsappUrl(process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP || '233592060208');
+  const groupLink = whatsappGroupFromEnv();
   const [form, setForm] = useState<CheckoutState>(emptyCheckout);
   const [orderBusy, setOrderBusy] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
@@ -133,9 +139,26 @@ export default function Storefront() {
   useEffect(() => {
     const onEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSelected(null); setCartOpen(false); setCheckoutOpen(false); setMobileMenu(false); } };
     document.addEventListener('keydown', onEscape);
-    document.body.style.overflow = cartOpen || checkoutOpen || selected ? 'hidden' : '';
+    // Lock the page behind any overlay, including the mobile menu, and release
+    // it immediately when the overlay closes.
+    document.body.style.overflow = cartOpen || checkoutOpen || selected || mobileMenu ? 'hidden' : '';
     return () => { document.removeEventListener('keydown', onEscape); document.body.style.overflow = ''; };
-  }, [cartOpen, checkoutOpen, selected]);
+  }, [cartOpen, checkoutOpen, selected, mobileMenu]);
+  useEffect(() => {
+    // Give the floating header a shadow once it detaches from the top of the page.
+    const onScroll = () => { setStuck(window.scrollY > 8); };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  useEffect(() => {
+    // Rotating or resizing past the mobile breakpoint must not leave the page
+    // locked behind a drawer that is no longer visible.
+    const wide = window.matchMedia('(min-width: 901px)');
+    const onChange = (event: MediaQueryListEvent) => { if (event.matches) setMobileMenu(false); };
+    wide.addEventListener('change', onChange);
+    return () => wide.removeEventListener('change', onChange);
+  }, []);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(''), 3400);
@@ -161,15 +184,15 @@ export default function Storefront() {
   const quoteEligible = cartLoaded && !cartLoading && !cartError && !unavailableLines.length
     && cart.length > 0 && cart.length <= 8 && emailValid && checkoutReady && !orderingPaused;
   useEffect(() => {
-    if (!quoteEligible) { setQuote(null); setQuoteKey(''); setQuoteBusy(false); setQuoteError(''); return; }
+    if (!quoteEligible) { setQuote(null); setQuoteKey(''); setQuoteBusy(false); setQuoteError(''); setQuoteHint(''); return; }
     let current = true;
     const controller = new AbortController();
-    setQuote(null); setQuoteKey(''); setQuoteError(''); setQuoteBusy(true);
+    setQuote(null); setQuoteKey(''); setQuoteError(''); setQuoteHint(''); setQuoteBusy(true);
     const timer = setTimeout(() => {
       void fetch('/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: quotePayload, signal: controller.signal }).then(async (r) => {
-          const data = await r.json() as StoreQuote & { error?: string };
-          if (!r.ok) throw new Error(data.error || 'Your live quote is unavailable.');
+          const data = await r.json() as StoreQuote & { error?: string; hint?: string };
+          if (!r.ok) { if (current && typeof data.hint === 'string') setQuoteHint(data.hint); throw new Error(data.error || 'Your live quote is unavailable.'); }
           if (current) { setQuote(data); setQuoteKey(quotePayload); }
         }).catch((e: unknown) => { if (current) setQuoteError(e instanceof Error ? e.message : 'Your live quote is unavailable.'); })
         .finally(() => { if (current) setQuoteBusy(false); });
@@ -181,6 +204,8 @@ export default function Storefront() {
   const readyForCheckout = !loading && !catalogError && cartLoaded && !cartLoading && !cartError
     && !unavailableLines.length && count > 0 && !orderingPaused && checkoutReady && quoteCurrent && !quoteBusy;
 
+  const closeMenu = () => setMobileMenu(false);
+  const navTo = (next: Filter) => { closeMenu(); setFilter(next); setPage(1); scrollToShop(); };
   const selectCategory = (next: Filter) => { setFilter(next); setPage(1); setMobileMenu(false); scrollToShop(); };
   const openProduct = (product: StoreProduct) => { if (!product.available) return; setSelected(product); setSize(product.sizes[0] || 'One size'); setQuantity(1); };
   const add = (id: string, chosen: string, qty: number) => {
@@ -234,17 +259,19 @@ export default function Storefront() {
     [heroVisual, ...heroLooks.filter((look) => look !== heroVisual)];
   return <div className="site-shell">
     {catalog.storefront.announcement_enabled && <div className="announcement"><span>{catalog.storefront.announcement_text}</span><span className="announcement-star">✦</span><span>EXPLORE THE COLLECTION</span></div>}
-    <header className="site-header">
+    <header className={`site-header ${stuck ? 'is-stuck' : ''}`.trim()}>
       <a className="logo" href="#top" aria-label="The Tie Guy — back to top"><img src="/brand/logo-header.png" alt="THE TIE GUY — Ties. Clips. Brooches" /></a>
       <nav className={`desktop-nav ${mobileMenu ? 'nav-open' : ''}`} aria-label="Main navigation">
-        <button onClick={() => selectCategory('All')}>Shop all</button><button onClick={() => selectCategory('Ties')}>Neckties</button>
-        <button onClick={() => selectCategory('Clips')}>Tie clips</button><button onClick={() => selectCategory('Brooches')}>Brooches</button>
-        <a href="#the-edit" onClick={() => setMobileMenu(false)}>The edit</a>
+        <button onClick={() => navTo('All')}>Shop all</button><button onClick={() => navTo('Ties')}>Neckties</button>
+        <button onClick={() => navTo('Clips')}>Tie clips</button><button onClick={() => navTo('Brooches')}>Brooches</button>
+        <a href="#the-edit" onClick={closeMenu}>The edit</a>
       </nav>
       <div className="header-actions"><button className="header-search" onClick={() => { scrollToShop(); setTimeout(() => document.querySelector<HTMLInputElement>('#shop-search')?.focus(), 400); }} aria-label="Search the collection"><Search size={21} strokeWidth={1.7} /></button>
         <button className="bag-trigger" onClick={() => setCartOpen(true)} aria-label={`Open bag with ${count} items`}><ShoppingBag size={22} strokeWidth={1.7} /><span>{count}</span></button>
         <button className="menu-trigger" onClick={() => setMobileMenu((v) => !v)} aria-label="Open menu" aria-expanded={mobileMenu}>{mobileMenu ? <X size={24} /> : <Menu size={24} />}</button></div>
     </header>
+    {/* Tapping anywhere outside the open mobile drawer closes it. */}
+    {mobileMenu && <button type="button" className="nav-backdrop" aria-label="Close menu" tabIndex={-1} onClick={closeMenu} />}
 
     <main id="top">
       <section className="hero" aria-labelledby="hero-heading"><div className="hero-copy"><div className="eyebrow"><span className="small-line" /> {catalog.storefront.hero_eyebrow}</div>
@@ -284,8 +311,14 @@ export default function Storefront() {
 
       <section className="promise"><div><IconMark size={52}/><h2>Dress for the<br /><em>moment.</em></h2><p>The difference is in the details. Explore ties, clips and brooches made to finish your look with intention.</p><button className="button button-cream" onClick={()=>selectCategory('All')}>Shop all pieces <ArrowUpRight size={18}/></button></div><div className="promise-orbit">TIES <span>✦</span> CLIPS <span>✦</span> BROOCHES</div></section>
     </main>
-    <footer className="site-footer"><div className="footer-top"><div><img src="/brand/logo-header.png" alt="THE TIE GUY — Ties. Clips. Brooches" /><p>Ties. Clips. Brooches.<br />The details make the difference.</p></div><div><h3>Explore</h3><button onClick={()=>selectCategory('All')}>Shop all</button><button onClick={()=>selectCategory('Ties')}>Neckties</button><button onClick={()=>selectCategory('Clips')}>Tie clips</button><button onClick={()=>selectCategory('Brooches')}>Brooches</button></div><div><h3>Get in touch</h3><p><Instagram size={17}/> DM @thetieguy</p><p><Mail size={17}/> Orders via secure checkout</p><small>Delivery prices are shown before payment when a zone is configured. Otherwise, delivery is quoted separately.</small></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} THE TIE GUY</span><span>WEAR THE MOMENT WELL.</span><span>Made for the details.</span></div></footer>
+    <footer className="site-footer"><div className="footer-top"><div><img src="/brand/logo-header.png" alt="THE TIE GUY — Ties. Clips. Brooches" /><p>Ties. Clips. Brooches.<br />The details make the difference.</p></div><div><h3>Explore</h3><button onClick={()=>selectCategory('All')}>Shop all</button><button onClick={()=>selectCategory('Ties')}>Neckties</button><button onClick={()=>selectCategory('Clips')}>Tie clips</button><button onClick={()=>selectCategory('Brooches')}>Brooches</button></div><div><h3>Get in touch</h3>{supportLink
+            ? <a className="footer-whatsapp" href={supportLink} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={17} /> Chat with us on WhatsApp</a>
+            : <p><WhatsAppIcon size={17}/> Chat with us on WhatsApp</p>}<p><Mail size={17}/> Orders via secure checkout</p><small>Delivery prices are shown before payment when a zone is configured. Otherwise, delivery is quoted separately.</small></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} THE TIE GUY</span><span>WEAR THE MOMENT WELL.</span><span>Made for the details.</span></div></footer>
 
+    {supportLink && !cartOpen && !checkoutOpen && !selected && !mobileMenu && <a className="support-float" href={supportLink}
+      target="_blank" rel="noopener noreferrer" aria-label="Need help? Chat with The Tie Guy on WhatsApp">
+      <WhatsAppIcon size={21} /><span className="support-float-long">Need help? Chat with us</span><span className="support-float-short">Need help?</span>
+    </a>}
     {notice && <div className="store-notice" role="status"><Check size={18}/>{notice}</div>}
     {selected && <div className="modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setSelected(null);}}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Choose ${selected.name}`}><button className="close-button" aria-label="Close product" onClick={()=>setSelected(null)}><X size={21}/></button><div className="modal-art"><ProductImage product={selected} className="modal-image" /></div><div className="modal-copy"><p className="eyebrow gold-text">{selected.category.toUpperCase()}</p><h2>{selected.name}</h2><strong className="modal-price">{formatGhs(selected.price_minor)}</strong><p>{selected.description || 'The finishing touch for the moments that matter.'}</p>
           {selected.has_size_chart && <div className="size-guide"><button type="button" className="size-guide-toggle" onClick={()=>setShowChart((value)=>!value)} aria-expanded={showChart}>Size guide <ChevronDown size={17}/></button>
@@ -313,6 +346,7 @@ export default function Storefront() {
           {!emailValid && <div className="offer-feedback">Add your email to see the verified total and any automatic offer.</div>}
           {quoteBusy && <div className="offer-feedback">Checking prices, stock and offers…</div>}
           {quoteError && <div className="checkout-error" role="alert">{quoteError}</div>}
+          {quoteHint && <div className="checkout-error checkout-hint-detail" role="status">{quoteHint}</div>}
           {cartError && <div className="checkout-error" role="alert">{cartError}</div>}
           {(quoteCurrent ? quote.delivery_fee_minor : deliveryFee)===null && form.method==='delivery' && <div className="delivery-notice">Delivery outside listed zones is quoted and paid separately. Your Paystack charge covers products only; a free-delivery offer cannot waive an unquoted charge.</div>}{testMode && <div className="test-mode-note">Paystack TEST MODE — no real payment will be taken.</div>}<div className="secure-box"><ShieldCheck size={21}/><span>Your card or Mobile Money details go straight to Paystack; we never collect them here. Paystack-verified payments are confirmed automatically. Our team handles delivery and any exceptions.</span></div><button className="button button-dark full-button" form="checkout-form" disabled={orderBusy || !readyForCheckout}>{orderBusy?'Connecting to Paystack…':readyForCheckout?`Pay ${formatGhs(total)}`:'Waiting for live quote'} <ArrowUpRight size={19}/></button>{checkoutError && <p className="checkout-error" role="alert">{checkoutError}</p>}<span className="checkout-hint">A valid email is required for your Paystack receipt. We never create a WhatsApp customer identifier from this form.</span></div></div></div></div>}
   </div>;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import { initializePaystack, matchesVerifiedPayment, validPaystackCheckoutUrl, validPaystackSignature, verifiedPaidAt, verifyPaystack } from '../lib/paystack.ts';
-import { normalizeCatalog, normalizeQuote, normalizeSizeChart, defaultStorefront, categoryFor, safeImage, formatGhs } from '../lib/catalog.ts';
+import { normalizeCatalog, normalizeQuote, normalizeSizeChart, defaultStorefront, categoryFor, safeImage, formatGhs, whatsappGroupUrl, supportWhatsappUrl, whatsappGroupFromEnv } from '../lib/catalog.ts';
 import { reconcileVerifiedOrder } from '../lib/payment-flow.ts';
 
 const order = { id:'11111111-1111-4111-8111-111111111111',reference:'TG'+'a'.repeat(32),amount_minor:8950,currency:'GHS',customer_email:'buyer@example.com' };
@@ -152,4 +152,37 @@ test('database errors and unexpected RPC states fail closed instead of showing p
     async()=>({data:null,error:{message:'Database unavailable'}})),/Database unavailable/);
   await assert.rejects(reconcileVerifiedOrder({...order,payment_status:'pending'},secret,
     async()=>verified,async()=>({data:'paid_by_ai',error:null})),/unexpected state/);
+});
+
+test('thank-you page only ever links to a genuine HTTPS WhatsApp invite', () => {
+  assert.equal(whatsappGroupUrl('https://chat.whatsapp.com/AbCdEf12345'), 'https://chat.whatsapp.com/AbCdEf12345');
+  // A direct chat link is the support line, never the community invite.
+  assert.equal(whatsappGroupUrl('  https://wa.me/233200000000  '), null);
+  assert.equal(whatsappGroupUrl('https://www.whatsapp.com/channel/0029Xa'), 'https://www.whatsapp.com/channel/0029Xa');
+  for (const bad of ['', '   ', null, undefined, 42, {}, 'javascript:alert(1)', 'http://chat.whatsapp.com/AbCdEf',
+    'https://chat.whatsapp.com/', 'https://evil.example.com/chat.whatsapp.com/AbCdEf', 'https://chat.whatsapp.com.evil.test/x',
+    'https://user:pass@chat.whatsapp.com/AbCdEf', 'not a url']) {
+    assert.equal(whatsappGroupUrl(bad), null, `should reject ${String(bad)}`);
+  }
+});
+
+test('support chat link is normalised correctly and never points at the community group', () => {
+  assert.equal(supportWhatsappUrl('233592060208', 'Hi The Tie Guy, I need some help.'),
+    'https://wa.me/233592060208?text=Hi%20The%20Tie%20Guy%2C%20I%20need%20some%20help.');
+  assert.match(supportWhatsappUrl('+233 59 206 0208') || '', /^https:\/\/wa\.me\/233592060208\?text=/);
+  assert.match(supportWhatsappUrl('0592060208') || '', /^https:\/\/wa\.me\/233592060208/);
+  assert.equal(supportWhatsappUrl('233592060208', ''), 'https://wa.me/233592060208');
+  for (const bad of ['', '   ', null, undefined, 42, 'call me', '123']) assert.equal(supportWhatsappUrl(bad), null, `should reject ${String(bad)}`);
+});
+
+test('the community group is read from either supported variable name, and only when it is a real invite', () => {
+  assert.equal(whatsappGroupFromEnv({ NEXT_PUBLIC_WHATSAPP_GROUP_URL: 'https://chat.whatsapp.com/AbCd12345' }), 'https://chat.whatsapp.com/AbCd12345');
+  assert.equal(whatsappGroupFromEnv({ NEXT_PUBLIC_WHATSAPP_GROUP_LINK: 'https://chat.whatsapp.com/XyZ98765' }), 'https://chat.whatsapp.com/XyZ98765');
+  assert.equal(whatsappGroupFromEnv({ WHATSAPP_GROUP_URL: 'https://chat.whatsapp.com/QqQ11111' }), 'https://chat.whatsapp.com/QqQ11111');
+  assert.equal(whatsappGroupFromEnv({ NEXT_PUBLIC_WHATSAPP_GROUP_URL: 'https://wa.me/233592060208' }), null, 'a support chat link must never be used as the group invite');
+  assert.equal(whatsappGroupFromEnv({ NEXT_PUBLIC_WHATSAPP_GROUP_URL: 'not-a-url' }), null);
+  assert.equal(whatsappGroupFromEnv({}), null);
+  const support = supportWhatsappUrl('233592060208');
+  const group = whatsappGroupFromEnv({ NEXT_PUBLIC_WHATSAPP_GROUP_URL: 'https://chat.whatsapp.com/AbCd12345' });
+  assert.notEqual(support, group, 'support and community destinations stay distinct');
 });

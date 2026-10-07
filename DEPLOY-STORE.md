@@ -67,6 +67,9 @@ Names are exact. Values are secret and are **not** included in this package.
 | `PAYSTACK_SECRET_KEY` | **server secret** | Paystack → Settings → API Keys & Webhooks | `sk_test_…` first, then `sk_live_…` |
 | `STORE_ORIGIN` | server | The final HTTPS origin of this store | `https://your-store-domain` (no trailing slash) |
 | `CRON_SECRET` | **server secret** | Generate a random 32+ character string | `openssl rand -hex 32` |
+| `NEXT_PUBLIC_WHATSAPP_GROUP_URL` | public (optional) | The group invite link customers see after payment | `https://chat.whatsapp.com/XXXXXXXX` |
+| `NEXT_PUBLIC_SUPPORT_WHATSAPP` | public (optional) | Customer-care chat for the floating button, footer and failed-payment page | `233592060208` (default) |
+| `NEXT_PUBLIC_WHATSAPP_GROUP_LINK` | public (optional) | Accepted alias for the group invite if that is the name already in Vercel | `https://chat.whatsapp.com/XXXXXXXX` |
 
 Rules
 
@@ -94,6 +97,77 @@ npm run verify:deploy -- --strict
 
 ---
 
+## 4b. "The store doesn't show the products I added to the dashboard"
+
+Two fast checks tell you which half is broken:
+
+1. `https://<your-store-domain>/api/catalog` — the HTTP status is the diagnosis.
+   - **503** "The live collection is temporarily unavailable": the store's server cannot read the catalog. Cause is server-side: SQL migrations unapplied, the `anon` grant missing, or this Vercel project is pointed at a different Supabase project/keys than the dashboard.
+   - **200 with `"products": []`**: the store works, nothing qualifies to display — products switched off, or all sold out.
+   - **200 with products listed**: the store is fine; the site you're looking at is an old deployment or a cached page (hard-refresh).
+2. Run `supabase/migrations/30_why_store_products_missing_read_only.sql` in the SQL Editor. It is read-only and prints, per product, the reason it would be hidden (`active` is false, no price, sold out), plus a one-line verdict.
+
+Remember the two rules the catalog enforces: a product shows only when **`active` is true** (the dashboard's product switch), and it renders as sold out — not hidden — when **stock is 0**. A product you "add" in the dashboard is saved to that dashboard's Supabase project, so if the store project's `NEXT_PUBLIC_SUPABASE_URL` names a different project, the store will never see it.
+
+## 4c. "Awaiting live quote" and no Pay button
+
+The Pay button only appears after a successful live quote. If the panel shows a
+pink *"Please use the official store to request a quote."* and the button stays
+**WAITING FOR LIVE QUOTE**, the browser's address does not match `STORE_ORIGIN`
+(common while testing on a Vercel preview URL). The page now prints the exact
+pair, and Vercel logs an `origin_mismatch` line. Set `STORE_ORIGIN` to the
+origin customers actually open (scheme + host, no trailing slash), redeploy, and
+the button appears. Step-by-step: [`../deploy/FIX-quote-403-origin.md`](../deploy/FIX-quote-403-origin.md).
+
+## 4c-bis. Navigation, support chat and the mobile menu (update of October 2026)
+
+**Sticky navigation.** The header is now `position: sticky` with a translucent
+blur and a soft shadow that appears once it detaches from the announcement bar.
+No layout jump: sticky keeps the header's space in the document. `html` gained
+`scroll-padding-top` so anchored sections are not hidden behind it.
+
+**Mobile drawer.** Opens with the existing hamburger and now closes on any of:
+outside tap (a real backdrop sits behind it), Escape, the X, or choosing a
+navigation item. Background scrolling is locked while it is open, released
+immediately on close, and a resize past 901 px closes it so the page can never
+stay locked. The drawer is anchored with `top:100%`, so it follows the sticky
+header.
+
+**Floating WhatsApp support.** Bottom-right, always visible while browsing,
+"Need help? Chat with us" on desktop and "Need help?" on phones. It links to the
+**support** chat only (`NEXT_PUBLIC_SUPPORT_WHATSAPP`, default `233592060208`,
+with the pre-filled message "Hi The Tie Guy, I need some help."). It hides while
+the bag, product dialog, checkout or mobile drawer is open, so it can never cover
+Add to bag, Pay or other controls.
+
+**Footer.** The Instagram DM line is replaced with a WhatsApp link to the same
+support chat; the rest of the section is unchanged.
+
+**Two destinations, deliberately separate:** support chat = `wa.me` link;
+community group = `chat.whatsapp.com/…` invite (thank-you page only). The
+validators refuse to swap them — a `wa.me` chat link can never be rendered as the
+group button, and the group invite is never used for support.
+
+## 4d. The post-payment thank-you page
+
+After a confirmed payment, `/order/return` shows a **Thank you** panel with the
+order number, reference and confirmation source, plus an invitation to join the
+**WhatsApp group for discount codes and new arrivals**. Two deliberately tiny
+controls sit in the bottom-right corner: **Skip** (hides the invitation) and
+**Return to store**.
+
+- Set `NEXT_PUBLIC_WHATSAPP_GROUP_URL` to your real group invite
+  (`https://chat.whatsapp.com/…`). Only genuine HTTPS WhatsApp links are
+  rendered — any other value (including typos) is ignored and the page shows
+  its "invite is being set up" line instead, so a paying customer is never sent
+  to an unverified address.
+- Leaving it empty is fine; the thank-you message still appears.
+- Only a payment status of `confirmed` gets this panel. Pending or
+  review-needed payments keep the status screen with **Back to store** /
+  **Check again**.
+- Verification: `npm run test:thankyou` (browser check of both states, the tiny
+  corner controls and phone widths) and the unit checks in `npm test`.
+
 ## 5. Verify after deploying
 
 1. `https://<your-store-domain>/api/config` → `{"checkout_enabled":true,"test_mode":true}` while on test keys.
@@ -117,7 +191,7 @@ npm run verify:deploy -- --strict
 | `Invalid vercel.json` | Hand-edited config | Use the bundled `vercel.json` unchanged |
 | `npm ci … lock file does not satisfy` | `package-lock.json` out of sync after local edits | Run `npm install` locally, commit the refreshed lock file |
 | Deploys fine, but the page says checkout is not configured | Env vars missing (expected on a first deploy) | Add all six variables, redeploy (§3) |
-| Home page loads, catalog empty / 503 | SQL in §1 unapplied, or no active products in the dashboard | Apply the migrations in order, then publish products |
+| Home page loads but the collection is empty, or `/api/catalog` returns 503 | Either the SQL in §1 is unapplied (503), the products are switched off/sold out, or the store project points at different Supabase keys | Run the read-only diagnostic `supabase/migrations/30_why_store_products_missing_read_only.sql` in the SQL Editor — it names the exact cause per product and prints a one-line verdict naming the fix |
 | Cron warning about schedule frequency | A schedule more frequent than once daily on the Hobby plan | Keep `0 7 * * *`, or upgrade/remove `crons` |
 
 When a deploy fails, copy the first red error block from the Vercel build log — it names the failing step (install, build, or output) and the fix is almost always Root Directory, Framework Preset, or a lock-file mismatch.
