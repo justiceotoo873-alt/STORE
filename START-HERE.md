@@ -23,6 +23,23 @@ Full instructions: [`DEPLOY-STORE.md`](DEPLOY-STORE.md).
    Real keys are deliberately **not** in this archive. The site still deploys without them and shows checkout disabled.
 5. **Paystack**: set the webhook URL to `https://<your-domain>/api/paystack-webhook`, take one test-key order end to end, then switch to live keys and redeploy. Now open `/api/config` — it must report `checkout_enabled: true`.
 
+## Updating an existing deployment (no new project)
+
+Copy these over your repo and push — Vercel rebuilds the same project:
+
+```
+components/Storefront.tsx        components/PaymentReturn.tsx     components/WhatsAppIcon.tsx (new)
+app/order/return/page.tsx        app/api/payment-status/route.ts  app/globals.css
+lib/catalog.ts                   package.json                     .env.example
+scripts/                         (the WHOLE folder: prebuild-check.mjs + verify-deploy.mjs)
+tests/                           (optional: the browser + unit checks, not used at runtime)
+```
+
+`package.json` now runs `scripts/prebuild-check.mjs` before every build. If you copy
+`package.json` without `scripts/`, older copies fail with
+`Cannot find module '.../scripts/prebuild-check.mjs'`; this kit's version only warns and
+continues, but copying the folder keeps the useful "what did I actually upload?" diagnosis.
+
 ## Before you push
 
 ```bash

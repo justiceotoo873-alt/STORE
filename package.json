@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev -H 0.0.0.0",
-    "prebuild": "node scripts/prebuild-check.mjs",
+    "prebuild": "node -e \"const fs=require('fs'),p='scripts/prebuild-check.mjs';if(!fs.existsSync(p)){console.log('prebuild-check: skipped (scripts/prebuild-check.mjs not present in this deployment)');process.exit(0)}const r=require('child_process').spawnSync(process.execPath,[p],{stdio:'inherit'});process.exit(r.status===0?0:1)\"",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "typecheck": "tsc --noEmit",
